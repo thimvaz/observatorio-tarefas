@@ -10,12 +10,28 @@ st.set_page_config(page_title="Painel de Tarefas", page_icon="📚", layout="wid
 if os.path.exists("logo.png"):
     st.sidebar.image("logo.png", use_container_width=True)
 
-# ── CSS mínimo ──────────────────────────────────────────────────────────────
+# ── CSS mínimo e Configuração de Impressão (PDF) ─────────────────────────────
 st.markdown("""
 <style>
 .alerta-card { background: #fff3cd; border-left: 5px solid #ff6b00; border-radius: 6px; padding: 12px 18px; margin-bottom: 8px; }
 .alerta-card b { color: #7a3800; }
 .alerta-card small { color: #555; }
+
+/* Ocultar elementos na hora de gerar o PDF (Ctrl+P) */
+@media print {
+    /* Esconde a barra lateral, cabeçalho do Streamlit e o rodapé padrão */
+    [data-testid="stSidebar"], header, footer { display: none !important; }
+    /* Esconde os filtros para o PDF ficar limpo */
+    [data-testid="stSelectbox"], [data-testid="stMultiSelect"], [data-testid="stTextInput"] { display: none !important; }
+    /* ESCONDE O ALERTA (Expander) PARA NÃO VAZAR NA IMPRESSÃO */
+    [data-testid="stExpander"], details { display: none !important; }
+    /* Esconde os botões das abas superiores */
+    [role="tablist"] { display: none !important; }
+    /* Esconde o aviso de como imprimir */
+    .aviso-impressao { display: none !important; }
+    /* Ajusta a largura e margens para usar a folha toda */
+    .block-container { max-width: 100% !important; padding-top: 0rem !important; }
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -41,8 +57,16 @@ def verificar_senha():
 if not verificar_senha():
     st.stop()
 
-# ── Título Principal ─────────────────────────────────────────────────────────
-st.title("🔭 Observatório das Tarefas")
+# ── Título Principal e Instrução de PDF ──────────────────────────────────────
+col1, col2 = st.columns([3, 1])
+with col1:
+    st.title("🔭 Observatório das Tarefas")
+with col2:
+    st.markdown("""
+        <div class="aviso-impressao" style="text-align: right; margin-top: 25px; color: #555; font-size: 14px;">
+            🖨️ Para exportar, pressione <b>Ctrl + P</b><br>e escolha "Salvar como PDF"
+        </div>
+    """, unsafe_allow_html=True)
 
 PERCENTUAL_MINIMO = 50
 MIN_TAREFAS_ALERTA = 3
@@ -69,7 +93,7 @@ else:
     st.stop()
 
 df["Matrícula"] = df["Matrícula"].astype(str).str.replace(r'\.0$', '', regex=True).replace('nan', '0')
-
+# df = df[df["serie"].str.contains("Ano", case=False, na=False)]
 
 # ── ALERTAS GLOBAIS ──────────────────────────────────────────────────────────
 tarefas_abaixo = df[df["percentual_num"] < PERCENTUAL_MINIMO]
@@ -95,7 +119,6 @@ aba_turma, aba_aluno = st.tabs(["📊 Comparativo Cruzado", "🔍 Buscar Aluno"]
 # ABA 1 — COMPARATIVO CRUZADO (Multi-Seleção)
 # ══════════════════════════════════════════════════════════════════════════════
 with aba_turma:
-    # Linha 1: Filtros Estruturais
     c1, c2, c3 = st.columns(3)
     
     serie_sel = c1.selectbox("Série", sorted(df["serie"].unique()))
@@ -104,21 +127,16 @@ with aba_turma:
     turma_sel = c2.selectbox("Turma", ["Todas"] + list(sorted(df_serie["Turma"].dropna().unique())))
     tipo_sel = c3.selectbox("Tipo de Tarefa", ["Todos", "dose mínima", "dose para leão"])
 
-    # Linha 2: Filtros de Cruzamento (Multi-seleção com mais espaço)
     c_mat, c_mod = st.columns(2)
     
     materias_disp = sorted(df_serie["materia"].unique())
-    # O default será a primeira matéria da lista para a tabela não iniciar vazia
     materias_sel = c_mat.multiselect("📚 Matérias", materias_disp, default=materias_disp[:1])
 
-    # A lista de módulos disponíveis muda dependendo das matérias escolhidas
     df_temp = df_serie[df_serie["materia"].isin(materias_sel)]
     modulos_disp = sorted(df_temp["etapa_nome"].unique(), key=lambda x: int(re.search(r'\d+', x).group()) if re.search(r'\d+', x) else 0)
     
-    # O default seleciona todos os módulos das matérias escolhidas
     modulos_sel = c_mod.multiselect("🎯 Módulos", modulos_disp, default=modulos_disp)
 
-    # Aplica todos os filtros
     df_filtrado = df_temp[df_temp["etapa_nome"].isin(modulos_sel)].copy()
     if turma_sel != "Todas": df_filtrado = df_filtrado[df_filtrado["Turma"] == turma_sel]
     if tipo_sel != "Todos": df_filtrado = df_filtrado[df_filtrado["tipo"] == tipo_sel]
@@ -126,10 +144,8 @@ with aba_turma:
     if df_filtrado.empty:
         st.info("Nenhum dado encontrado. Selecione pelo menos uma Matéria e um Módulo.")
     else:
-        # Cria uma coluna composta para a visualização (ex: "CIÊNCIAS - Módulo 2")
         df_filtrado["coluna_pivot"] = df_filtrado["materia"] + " - " + df_filtrado["etapa_nome"]
 
-        # Cria a Tabela Dinâmica
         tabela_comparativa = df_filtrado.pivot_table(
             index=["nome"], 
             columns="coluna_pivot", 
@@ -137,7 +153,6 @@ with aba_turma:
             aggfunc="mean"
         ).reset_index()
 
-        # Ordena as colunas alfabeticamente pela matéria e numericamente pelo módulo
         def chave_ordenacao(nome_coluna):
             if nome_coluna == "nome": return ("", 0)
             partes = nome_coluna.split(" - ")
@@ -152,7 +167,7 @@ with aba_turma:
         colunas_dados = [col for col in tabela_comparativa.columns if col != "Aluno"]
 
         def colorir(val):
-            if pd.isna(val): return "" # Células vazias
+            if pd.isna(val): return ""
             if val == 0: return "background-color: #ffd6d6; color: black"
             if val < PERCENTUAL_MINIMO: return "background-color: #fff3cd; color: black"
             return "background-color: #d4edda; color: black"
