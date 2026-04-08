@@ -14,7 +14,7 @@ def conectar_drive():
 
 def carregar_todos_arquivos():
     servico = conectar_drive()
-    # LEMBRE-SE DE COLAR O ID DA SUA PASTA AQUI
+    # COLE O ID DA SUA PASTA AQUI
     id_pasta = '1Q1RlDAni03_7q8ypKG62hBG6jfa6yUAE' 
     query = f"'{id_pasta}' in parents and mimeType='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' and trashed=false"
     
@@ -38,23 +38,18 @@ def carregar_todos_arquivos():
             materia = partes[0] if len(partes) > 0 else "Desconhecida"
             serie = partes[1] if len(partes) > 1 else "Desconhecida"
             
-            # CAÇADOR DE ETAPAS (Ignora a posição e caça pela palavra)
             titulo_lower = coluna_titulo.lower()
             
+            # Caçador de Módulo
             match_modulo = re.search(r'm[óo]dulo\s*(\d+)', titulo_lower)
-            match_ciclo = re.search(r'ciclo\s*(\d+)', titulo_lower)
-            
             if match_modulo:
                 etapa_nome = f"Módulo {match_modulo.group(1)}"
                 etapa_num = int(match_modulo.group(1))
-            elif match_ciclo:
-                etapa_nome = f"Ciclo {match_ciclo.group(1)}"
-                etapa_num = int(match_ciclo.group(1))
             else:
                 etapa_nome = "Desconhecida"
                 etapa_num = 0
 
-            # CAÇADOR DE TIPO (Dose)
+            # Caçador de Tipo (Dose)
             if "mínima" in titulo_lower:
                 tipo = "dose mínima"
             elif "leão" in titulo_lower:
@@ -64,9 +59,9 @@ def carregar_todos_arquivos():
             
             df_temp.rename(columns={df_temp.columns[0]: 'nome'}, inplace=True)
             
-            # VACINA: Padroniza o nome da coluna de percentual ("questões" vs "listas")
+            # Vacina anti-KeyError (procura a coluna de percentual correta)
             for col in df_temp.columns:
-                if "Percentual" in str(col):
+                if "percentual" in str(col).lower():
                     df_temp.rename(columns={col: "Percentual Realizado"}, inplace=True)
                     break
             
