@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import os
 import re
-from data_loader import carregar_todos_arquivos
+from duckdb_loader import carregar_todos_arquivos, obter_ultimo_update
 
 st.set_page_config(page_title="Painel de Tarefas", page_icon="📚", layout="wide")
 
@@ -29,9 +29,25 @@ st.markdown("""
     [role="tablist"] { display: none !important; }
     /* Esconde o aviso de como imprimir */
     .aviso-impressao { display: none !important; }
+    /* Esconde a informação de atualização */
+    .info-update { display: none !important; }
     /* Ajusta a largura e margens para usar a folha toda */
     .block-container { max-width: 100% !important; padding-top: 0rem !important; }
 }
+
+/* Estilo para o badge de última atualização */
+.badge-update {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    padding: 8px 12px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 500;
+    display: inline-block;
+    margin-bottom: 12px;
+}
+
+.badge-update .emoji { margin-right: 6px; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -75,25 +91,51 @@ MIN_TAREFAS_ALERTA = 3
 def get_dados():
     return carregar_todos_arquivos()
 
-with st.spinner("Carregando dados... Aperte a tecla 'C' se a página travar no cache!"):
-    df = get_dados()
-
-if df.empty:
-    st.error("Nenhum arquivo encontrado. Verifique a pasta do Drive.")
+# ─────────────────────────────────────────────────────────────────────────────
+# 📊 CARREGAR DADOS (com tratamento de erro melhorado)
+# ─────────────────────────────────────────────────────────────────────────────
+try:
+    with st.spinner("⚡ Carregando dados do DuckDB..."):
+        df = get_dados()
+except Exception as erro:
+    st.error(f"❌ Erro ao carregar dados: {erro}")
+    st.info("💡 Dica: Se este é o primeiro acesso, execute `python data_sync.py` localmente para criar o banco de dados.")
     st.stop()
 
-# ── Pré-processamento ────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────
+# ⏰ EXIBIR INFORMAÇÕES DE ATUALIZAÇÃO
+# ─────────────────────────────────────────────────────────────────────────────
+info_update = obter_ultimo_update()
+
+st.markdown(f"""
+<div class="badge-update info-update">
+    <span class="emoji">🕐</span>Última atualização: <b>{info_update['formatado']}</b>
+</div>
+""", unsafe_allow_html=True)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# VALIDAÇÕES E PRÉ-PROCESSAMENTO
+# ─────────────────────────────────────────────────────────────────────────────
+if df.empty:
+    st.error("❌ Nenhum arquivo encontrado no banco de dados.")
+    st.info("💡 Verifique se os dados foram sincronizados corretamente.")
+    st.stop()
+
+# Limpar nomes de colunas
 df.columns = df.columns.str.strip()
 
+# Encontrar coluna de percentual
 colunas_perc = [col for col in df.columns if "percentual" in col.lower()]
 if colunas_perc:
-    df["percentual_num"] = df[colunas_perc[0]].astype(str).str.replace("%", "", regex=False).astype(float)
+    coluna_perc = colunas_perc[0]
+    df["percentual_num"] = df[coluna_perc].astype(str).str.replace("%", "", regex=False).astype(float)
 else:
-    st.error("Erro Crítico: Coluna de percentual não encontrada.")
+    st.error("❌ Erro Crítico: Coluna de percentual não encontrada.")
     st.stop()
 
-df["Matrícula"] = df["Matrícula"].astype(str).str.replace(r'\.0$', '', regex=True).replace('nan', '0')
-# df = df[df["serie"].str.contains("Ano", case=False, na=False)]
+# Limpar Matrícula
+if "Matrícula" in df.columns:
+    df["Matrícula"] = df["Matrícula"].astype(str).str.replace(r'\.0$', '', regex=True).replace('nan', '0')
 
 # ── ALERTAS GLOBAIS ──────────────────────────────────────────────────────────
 tarefas_abaixo = df[df["percentual_num"] < PERCENTUAL_MINIMO]
@@ -142,7 +184,7 @@ with aba_turma:
     if tipo_sel != "Todos": df_filtrado = df_filtrado[df_filtrado["tipo"] == tipo_sel]
 
     if df_filtrado.empty:
-        st.info("Nenhum dado encontrado. Selecione pelo menos uma Matéria e um Módulo.")
+        st.info("ℹ️  Nenhum dado encontrado. Selecione pelo menos uma Matéria e um Módulo.")
     else:
         df_filtrado["coluna_pivot"] = df_filtrado["materia"] + " - " + df_filtrado["etapa_nome"]
 
@@ -210,12 +252,12 @@ with aba_aluno:
 
             st.dataframe(df_hist.style.map(colorir_simples, subset=["% Realizado"]).format({"% Realizado": "{:.0f}%"}).hide(axis="index"), use_container_width=True)
         else:
-            st.warning("Nenhum aluno encontrado.")
+            st.warning("❌ Nenhum aluno encontrado.")
 
 # ── Rodapé ───────────────────────────────────────────────────────────────────
 st.markdown("""
     <hr style='margin-top: 50px; margin-bottom: 20px;'>
     <div style='text-align: center; color: #888888; font-size: 14px; padding-bottom: 20px;'>
-        Feito pelo Vaz
+        Feito pelo Vaz · Dados via DuckDB ⚡
     </div>
 """, unsafe_allow_html=True)
